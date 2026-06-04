@@ -11,3 +11,8 @@
 - Dynamic Networking
 - [ ] `o1 logs`
 - [ ] IP allocators for the containers
+- [ ] Bind Mount/Volumes: allow to map folder from host directly into the container
+- [ ] Environment Variables: config data for containers
+- [ ] Multiple port mapping
+- [ ] Named containers + calling them by unique initials
+- [ ] Dynamic resource allocation: as of now limits are hardcoded in `applyCGroups()`
