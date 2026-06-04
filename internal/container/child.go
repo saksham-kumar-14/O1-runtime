@@ -10,12 +10,19 @@ import (
 
 func Child(args []string) {
 
+	if len(args) < 2 {
+		panic("Child requires container ID and command")
+	}
+	containerID := args[0]
+	execArgs := args[1:]
+
 	imageDir := "/var/lib/o1/images/default"
-	containerDir := "/var/lib/o1/containers/temp"
+
+	containerDir := filepath.Join("/var/lib/o1/containers", containerID) // create a unique overlayFS dir for this container
 	upperDir := filepath.Join(containerDir, "upper")
 	workDir := filepath.Join(containerDir, "work")
 
-	rootfsPath := "/fs"
+	rootfsPath := filepath.Join(containerDir, "fs")
 	oldfsPath := filepath.Join(rootfsPath, "oldfs")
 
 	if err := syscall.Sethostname([]byte("o1-container")); err != nil {
@@ -68,12 +75,12 @@ func Child(args []string) {
 	syscall.Unmount("/oldfs", syscall.MNT_DETACH)
 	os.RemoveAll("/oldfs")
 
-	cmd := exec.Command(args[0], args[1:]...)
+	cmd := exec.Command(execArgs[0], execArgs[1:]...)
+
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		fmt.Printf("Container: Command failed: %v\n", err)
 		os.Exit(1)
 	}
 
