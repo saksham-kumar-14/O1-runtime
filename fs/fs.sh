@@ -8,7 +8,7 @@ fi
 
 DISTRO=$1
 ARCH=$(uname -m)
-TARGET_DIR="/fs"
+TARGET_DIR="/var/lib/o1/images/default"
 
 if [ -z "$DISTRO" ]; then
   echo "Usage: sudo ./fs.sh [alpine|arch]"
