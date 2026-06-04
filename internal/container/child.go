@@ -9,8 +9,21 @@ import (
 )
 
 func Child(args []string) {
-	rootfsPath := "/fs"
-	oldfsPath := "/fs/oldfs"
+
+	if len(args) < 2 {
+		panic("Child requires container ID and command")
+	}
+	containerID := args[0]
+	execArgs := args[1:]
+
+	imageDir := "/var/lib/o1/images/default"
+
+	containerDir := filepath.Join("/var/lib/o1/containers", containerID) // create a unique overlayFS dir for this container
+	upperDir := filepath.Join(containerDir, "upper")
+	workDir := filepath.Join(containerDir, "work")
+
+	rootfsPath := filepath.Join(containerDir, "fs")
+	oldfsPath := filepath.Join(rootfsPath, "oldfs")
 
 	if err := syscall.Sethostname([]byte("o1-container")); err != nil {
 		fmt.Printf("Error setting the hostname: %v\n", err)
@@ -21,17 +34,30 @@ func Child(args []string) {
 		panic(fmt.Sprintf("Error making mounts private: %v", err))
 	}
 
-	if err := syscall.Mount(rootfsPath, rootfsPath, "", syscall.MS_BIND, ""); err != nil {
-		panic(fmt.Sprintf("Error bind mounting rootfs: %v", err))
+	os.RemoveAll(containerDir)
+	os.MkdirAll(upperDir, 0777)
+	os.MkdirAll(workDir, 0777)
+	os.MkdirAll(rootfsPath, 0777)
+
+	// base image sanity check
+	if _, err := os.Stat(imageDir); os.IsNotExist(err) {
+		fmt.Printf("Container Error: Base image not found at %s\n", imageDir)
+		os.Exit(1)
 	}
 
+	// mount overlay
+	opts := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", imageDir, upperDir, workDir)
+	if err := syscall.Mount("overlay", rootfsPath, "overlay", 0, opts); err != nil {
+		panic(fmt.Sprintf("Error mounting overlayfs: %v", err))
+	}
+
+	// give DNS to merged fs
+	resolvPath := filepath.Join(rootfsPath, "etc", "resolv.conf")
+	os.WriteFile(resolvPath, []byte("nameserver 8.8.8.8\n"), 0644)
+
+	// pivot root into merged fs
 	if err := os.MkdirAll(oldfsPath, 0700); err != nil {
 		panic(fmt.Sprintf("Error creating oldfs directory: %v", err))
-	}
-
-	resolvPath := filepath.Join(rootfsPath, "etc", "resolv.conf")
-	if err := os.WriteFile(resolvPath, []byte("nameserver 8.8.8.8\n"), 0644); err != nil {
-		fmt.Printf("Warning: Failed to setup DNS: %v\n", err)
 	}
 
 	if err := syscall.PivotRoot(rootfsPath, oldfsPath); err != nil {
@@ -49,12 +75,12 @@ func Child(args []string) {
 	syscall.Unmount("/oldfs", syscall.MNT_DETACH)
 	os.RemoveAll("/oldfs")
 
-	cmd := exec.Command(args[0], args[1:]...)
+	cmd := exec.Command(execArgs[0], execArgs[1:]...)
+
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		fmt.Printf("Container: Command failed: %v\n", err)
 		os.Exit(1)
 	}
 

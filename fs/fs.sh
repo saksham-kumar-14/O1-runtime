@@ -7,23 +7,18 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 DISTRO=$1
-ARCH=$(uname -m)
-TARGET_DIR="/fs"
+TARGET_DIR="/var/lib/o1/images/default"
 
 if [ -z "$DISTRO" ]; then
   echo "Usage: sudo ./fs.sh [alpine|arch]"
   exit 1
 fi
 
-echo "CPU Architecture: $ARCH"
 echo "Target Directory: $TARGET_DIR"
+echo "Architecture: Forced to aarch64"
 
 if [ "$DISTRO" = "alpine" ]; then
-  if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
-    URL="https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/aarch64/alpine-minirootfs-3.19.1-aarch64.tar.gz"
-  else
-    URL="https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/x86_64/alpine-minirootfs-3.19.1-x86_64.tar.gz"
-  fi
+  URL="https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/aarch64/alpine-minirootfs-3.19.1-aarch64.tar.gz"
 
   echo "Downloading, extracting and cleaning alpine.."
   rm -rf $TARGET_DIR
@@ -35,25 +30,15 @@ if [ "$DISTRO" = "alpine" ]; then
   echo "Alpine filesystem is ready at $TARGET_DIR!"
 
 elif [ "$DISTRO" = "arch" ]; then
+  URL="http://os.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz"
+
   rm -rf $TARGET_DIR
 
-  if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
-    URL="http://os.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz"
-
-    echo "Downloading, extracting and cleaning arch.."
-    mkdir -p $TARGET_DIR
-    wget -qO /tmp/arch.tar.gz $URL
-    tar -xzf /tmp/arch.tar.gz -C $TARGET_DIR
-    rm /tmp/arch.tar.gz
-  else
-    URL="https://geo.mirror.pkgbuild.com/iso/latest/archlinux-bootstrap-x86_64.tar.zst"
-
-    echo "Downloading, extracting and cleaning arch.."
-    wget -qO /tmp/arch.tar.zst $URL
-    tar -xf /tmp/arch.tar.zst -C /tmp
-    mv /tmp/root.x86_64 $TARGET_DIR
-    rm /tmp/arch.tar.zst
-  fi
+  echo "Downloading, extracting and cleaning arch.."
+  mkdir -p $TARGET_DIR
+  wget -qO /tmp/arch.tar.gz $URL
+  tar -xzf /tmp/arch.tar.gz -C $TARGET_DIR
+  rm /tmp/arch.tar.gz
 
   echo "Arch filesystem is ready at $TARGET_DIR!"
 

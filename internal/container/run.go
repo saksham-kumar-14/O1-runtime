@@ -4,16 +4,36 @@
 package container
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 )
 
+type ContainerState struct {
+	ID      string `json:"id"`
+	PID     int    `json:"pid"`
+	Status  string `json:"status"`
+	Command string `json:"command"`
+}
+
+func generateID() string {
+	b := make([]byte, 4)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
 func Run(args []string) {
-	cmdArgs := append([]string{"child"}, args...)
+
+	containerID := generateID()
+
+	cmdArgs := append([]string{"child", containerID}, args...)
 	cmd := exec.Command("/proc/self/exe", cmdArgs...)
 
 	cmd.Stdin = os.Stdin
@@ -32,10 +52,21 @@ func Run(args []string) {
 	applyCgroups(cmd.Process.Pid)
 	setupNetwork(cmd.Process.Pid)
 
-	if err := cmd.Wait(); err != nil {
-		fmt.Printf("HOST: container exited with error: %v\n", err)
-		os.Exit(1)
+	// save to state database
+	state := ContainerState{
+		ID:      containerID,
+		PID:     cmd.Process.Pid,
+		Status:  "Running",
+		Command: strings.Join(args, " "),
 	}
+
+	stateBytes, _ := json.Marshal(state)
+	os.MkdirAll("/var/lib/o1/state", 0755)
+	statePath := filepath.Join("/var/lib/o1/state", containerID+".json")
+	os.WriteFile(statePath, stateBytes, 0644)
+
+	fmt.Printf("Container started successfully!\nID: %s\nPID: %d\n", containerID, cmd.Process.Pid)
+	os.Exit(0)
 }
 
 func applyCgroups(pid int) {
