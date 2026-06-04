@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"syscall"
 )
 
@@ -26,6 +27,11 @@ func Child(args []string) {
 
 	if err := os.MkdirAll(oldfsPath, 0700); err != nil {
 		panic(fmt.Sprintf("Error creating oldfs directory: %v", err))
+	}
+
+	resolvPath := filepath.Join(rootfsPath, "etc", "resolv.conf")
+	if err := os.WriteFile(resolvPath, []byte("nameserver 8.8.8.8\n"), 0644); err != nil {
+		fmt.Printf("Warning: Failed to setup DNS: %v\n", err)
 	}
 
 	if err := syscall.PivotRoot(rootfsPath, oldfsPath); err != nil {
