@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"text/tabwriter"
 )
@@ -79,4 +81,39 @@ func Stop(containerID string) {
 	os.RemoveAll(containerDir)
 
 	fmt.Printf("Container %s successfully stopped and removed.\n", state.ID)
+}
+
+// Exec dumps a new process directly into a running container's namespace
+func Exec(containerID string, userCmd []string) {
+	statePath := filepath.Join("/var/lib/o1/state", containerID+".json")
+	data, err := os.ReadFile(statePath)
+
+	if err != nil {
+		fmt.Printf("No such container running: %s\n", containerID)
+		return
+	}
+
+	var state ContainerState
+	if err := json.Unmarshal(data, &state); err != nil {
+		fmt.Printf("Err reading container state: %v\n", err)
+		return
+	}
+
+	if err := syscall.Kill(state.PID, 0); err != nil {
+		fmt.Printf("Container %s is not running\n", containerID)
+		return
+	}
+
+	SPid := strconv.Itoa(state.PID)
+	args := []string{"-t", SPid, "-m", "-u", "-i", "-n", "-p"}
+	args = append(args, userCmd...)
+	cmd := exec.Command("nsenter", args...)
+
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("Exec command failed: %v\n", err)
+	}
 }

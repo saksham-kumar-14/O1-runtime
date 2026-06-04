@@ -25,6 +25,12 @@ func main() {
 			os.Exit(1)
 		}
 		container.Stop(os.Args[2])
+	case "exec":
+		if len(os.Args) < 4 {
+			fmt.Println("Usage: o1 exec <container_id> <command>")
+			os.Exit(1)
+		}
+		container.Exec(os.Args[2], os.Args[3:])
 	default:
 		panic("Bad command")
 	}
