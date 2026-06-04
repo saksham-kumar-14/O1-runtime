@@ -102,6 +102,13 @@ func setupNetwork(pid int) {
 	runCmd("nsenter", "-t", pidStr, "-n", "ip", "route", "add", "default", "via", "10.0.0.1")
 
 	// port forwarding
+	// allow linux to route localhost traffic through our virtual cable
+	runCmd("sysctl", "-w", "net.ipv4.conf.veth0.route_localnet=1")
+	// allow container to reach the internet
 	runCmd("iptables", "-t", "nat", "-A", "POSTROUTING", "-s", "10.0.0.2/32", "-j", "MASQUERADE")
+	// route traffic from port 8080 into the container
 	runCmd("iptables", "-t", "nat", "-A", "PREROUTING", "-p", "tcp", "--dport", "8080", "-j", "DNAT", "--to-destination", "10.0.0.2:80")
+	runCmd("iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "--dport", "8080", "-j", "DNAT", "--to-destination", "10.0.0.2:80")
+	// disguise the packet so the container knows exactly how to reply
+	runCmd("iptables", "-t", "nat", "-A", "POSTROUTING", "-d", "10.0.0.2/32", "-p", "tcp", "--dport", "80", "-j", "MASQUERADE")
 }
