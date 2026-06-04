@@ -1,7 +1,6 @@
 #!/bin/bash
 
 set -e
-
 if [ "$EUID" -ne 0 ]; then
     echo "Run the fs script, eg: sudo ./fs.sh alpine"
     exit 1
@@ -9,6 +8,7 @@ fi
 
 DISTRO=$1
 ARCH=$(uname -m)
+TARGET_DIR="/fs"
 
 if [ -z "$DISTRO" ]; then
   echo "Usage: sudo ./fs.sh [alpine|arch]"
@@ -16,10 +16,9 @@ if [ -z "$DISTRO" ]; then
 fi
 
 echo "CPU Architecture: $ARCH"
+echo "Target Directory: $TARGET_DIR"
 
 if [ "$DISTRO" = "alpine" ]; then
-  TARGET_DIR="/tmp/alpine-fs"
-
   if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
     URL="https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/aarch64/alpine-minirootfs-3.19.1-aarch64.tar.gz"
   else
@@ -36,7 +35,6 @@ if [ "$DISTRO" = "alpine" ]; then
   echo "Alpine filesystem is ready at $TARGET_DIR!"
 
 elif [ "$DISTRO" = "arch" ]; then
-  TARGET_DIR="/tmp/arch-fs"
   rm -rf $TARGET_DIR
 
   if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
