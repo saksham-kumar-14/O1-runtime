@@ -21,7 +21,7 @@ func Run(args []string) {
 	cmd.Stderr = os.Stderr
 
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Cloneflags: syscall.CLONE_NEWUTS | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS,
+		Cloneflags: syscall.CLONE_NEWUTS | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWNET,
 	}
 
 	if err := cmd.Start(); err != nil {
@@ -30,6 +30,7 @@ func Run(args []string) {
 	}
 
 	applyCgroups(cmd.Process.Pid)
+	setupNetwork(cmd.Process.Pid)
 
 	if err := cmd.Wait(); err != nil {
 		fmt.Printf("HOST: container exited with error: %v\n", err)
@@ -58,4 +59,49 @@ func applyCgroups(pid int) {
 	if err := os.WriteFile(procsPath, []byte(strconv.Itoa(pid)), 0700); err != nil {
 		panic(fmt.Sprintf("Failed to write cgroup.procs: %v", err))
 	}
+}
+
+func runCmd(name string, args ...string) {
+	cmd := exec.Command(name, args...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		if args[0] != "deg" {
+			fmt.Printf("Network config warning: %v\nOutput: %v\n", err, out)
+		}
+	}
+}
+
+func setupNetwork(pid int) {
+	pidStr := strconv.Itoa(pid)
+
+	// create new network namespace symlink
+	os.MkdirAll("/var/run/netns", 0755)
+	netnsPath := filepath.Join("/var/run/netns", pidStr)
+	os.Remove(netnsPath) // Clean up just in case
+	if err := os.Symlink(filepath.Join("/proc", pidStr, "ns", "net"), netnsPath); err != nil {
+		fmt.Printf("Warning: Failed to symlink netns: %v\n", err)
+	}
+	defer os.Remove(netnsPath)
+
+	// clean up old interface
+	exec.Command("ip", "link", "del", "veth0").Run()
+
+	// create virtual ethernet pair
+	runCmd("ip", "link", "add", "dev", "veth0", "type", "veth", "peer", "name", "veth1")
+
+	// move veth1 to container's network namespace
+	runCmd("ip", "link", "set", "dev", "veth1", "netns", pidStr)
+
+	// configure host (veth0)
+	runCmd("ip", "addr", "add", "10.0.0.1/24", "dev", "veth0")
+	runCmd("ip", "link", "set", "dev", "veth0", "up")
+
+	// configure container (veth1)
+	runCmd("nsenter", "-t", pidStr, "-n", "ip", "addr", "add", "10.0.0.2/24", "dev", "veth1")
+	runCmd("nsenter", "-t", pidStr, "-n", "ip", "link", "set", "dev", "veth1", "up")
+	runCmd("nsenter", "-t", pidStr, "-n", "ip", "link", "set", "dev", "lo", "up")
+	runCmd("nsenter", "-t", pidStr, "-n", "ip", "route", "add", "default", "via", "10.0.0.1")
+
+	// port forwarding
+	runCmd("iptables", "-t", "nat", "-A", "POSTROUTING", "-s", "10.0.0.2/32", "-j", "MASQUERADE")
+	runCmd("iptables", "-t", "nat", "-A", "PREROUTING", "-p", "tcp", "--dport", "8080", "-j", "DNAT", "--to-destination", "10.0.0.2:80")
 }
