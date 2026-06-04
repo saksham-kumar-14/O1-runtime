@@ -33,7 +33,25 @@ func Run(args []string) {
 
 	containerID := generateID()
 
-	cmdArgs := append([]string{"child", containerID}, args...)
+	// dynamic port parsing
+	hostPort := ""
+	containerPort := ""
+	var execArgs []string
+
+	for i := 0; i < len(args); i++ {
+		if args[i] == "-p" && i+1 < len(args) {
+			ports := strings.Split(args[i+1], ":")
+			if len(ports) == 2 {
+				hostPort = ports[0]
+				containerPort = ports[1]
+			}
+			i++
+		} else {
+			execArgs = append(execArgs, args[i])
+		}
+	}
+
+	cmdArgs := append([]string{"child", containerID}, execArgs...)
 	cmd := exec.Command("/proc/self/exe", cmdArgs...)
 
 	cmd.Stdin = os.Stdin
@@ -50,7 +68,7 @@ func Run(args []string) {
 	}
 
 	applyCgroups(cmd.Process.Pid)
-	setupNetwork(cmd.Process.Pid)
+	setupNetwork(cmd.Process.Pid, hostPort, containerPort)
 
 	// save to state database
 	state := ContainerState{
@@ -101,7 +119,7 @@ func runCmd(name string, args ...string) {
 	}
 }
 
-func setupNetwork(pid int) {
+func setupNetwork(pid int, hostPort string, containerPort string) {
 	pidStr := strconv.Itoa(pid)
 
 	// create new network namespace symlink
@@ -142,4 +160,16 @@ func setupNetwork(pid int) {
 	runCmd("iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "--dport", "8080", "-j", "DNAT", "--to-destination", "10.0.0.2:80")
 	// disguise the packet so the container knows exactly how to reply
 	runCmd("iptables", "-t", "nat", "-A", "POSTROUTING", "-d", "10.0.0.2/32", "-p", "tcp", "--dport", "80", "-j", "MASQUERADE")
+
+	// dynamic routing
+	// setup port forwarding if port is provided
+	if hostPort != "" && containerPort != "" {
+		runCmd("sysctl", "-w", "net.ipv4.conf.veth0.route_localnet=1")
+		runCmd("iptables", "-t", "nat", "-A", "POSTROUTING", "-s", "10.0.0.2/32", "-j", "MASQUERADE")
+
+		// inject the dynamic variables into iptables
+		runCmd("iptables", "-t", "nat", "-A", "PREROUTING", "-p", "tcp", "--dport", hostPort, "-j", "DNAT", "--to-destination", "10.0.0.2:"+containerPort)
+		runCmd("iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "--dport", hostPort, "-j", "DNAT", "--to-destination", "10.0.0.2:"+containerPort)
+		runCmd("iptables", "-t", "nat", "-A", "POSTROUTING", "-d", "10.0.0.2/32", "-p", "tcp", "--dport", containerPort, "-j", "MASQUERADE")
+	}
 }
