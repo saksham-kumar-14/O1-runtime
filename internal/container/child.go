@@ -92,6 +92,13 @@ func Child(args []string) {
 		panic(fmt.Sprintf("Error creating oldfs directory: %v", err))
 	}
 
+	// inject linux virtual devices (/dev/null, /dev/random, /dev/zero)
+	devPath := filepath.Join(rootfsPath, "dev")
+	os.MkdirAll(devPath, 0755)
+	if err := syscall.Mount("devtmpfs", devPath, "devtmpfs", 0, ""); err != nil {
+		panic(fmt.Sprintf("Failed to mount devtmpfs: %v", err))
+	}
+
 	if err := syscall.PivotRoot(rootfsPath, oldfsPath); err != nil {
 		panic(fmt.Sprintf("Error pivoting root: %v", err))
 	}
