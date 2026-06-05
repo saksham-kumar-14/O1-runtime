@@ -71,6 +71,8 @@ func Run(args []string) {
 	hostPort := ""
 	containerPort := ""
 	volume := ""
+
+	var envVars []string	// for env variables `-e`
 	var execArgs []string
 
 	for i := 0; i < len(args); i++ {
@@ -84,6 +86,9 @@ func Run(args []string) {
 		} else if args[i] == "-v" && i+1 < len(args) {
 			volume = args[i+1]
 			i++
+		} else if args[i] == "-e" && i+1 < len(args) {
+			envVars = append(envVars, args[i+1])
+			i++
 		} else {
 			execArgs = append(execArgs, args[i])
 		}
@@ -93,6 +98,7 @@ func Run(args []string) {
 	cmd := exec.Command("/proc/self/exe", cmdArgs...)
 
 	cmd.Env = append(os.Environ(), "O1_VOLUME="+volume)		// put volume data in child process
+	cmd.Env = append(cmd.Env, envVars...)					// append environment variables as environment variables
 
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
