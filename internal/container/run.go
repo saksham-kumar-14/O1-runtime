@@ -21,6 +21,40 @@ type ContainerState struct {
 	PID     int    `json:"pid"`
 	Status  string `json:"status"`
 	Command string `json:"command"`
+	IP      string `json:"ip"`
+	Veth    string `json:"veth"`
+}
+
+func getAvailableIP() string {
+	stateDir := "/var/lib/o1/state"
+	files, err := os.ReadDir(stateDir)
+	if err != nil {
+		panic(fmt.Sprintf("IPAM error: %v\n", err))
+	}
+
+	doneIPs := make(map[string]bool)
+
+	for _, file := range files{
+		if filepath.Ext(file.Name()) == ".json"{
+			data, err := os.ReadFile(filepath.Join(stateDir, file.Name()))
+			if err == nil{
+				var state ContainerState
+				json.Unmarshal(data, &state)
+				if state.IP != ""{
+					doneIPs[state.IP] = true
+				}
+			}
+		}
+	}
+
+	for i := 2; i <= 254; i++ {
+		ip := fmt.Sprintf("10.0.0.%d", i)
+		if !doneIPs[ip] {
+			return ip
+		}
+	}
+
+	panic("IPAM Error: No available IP addresses in subnet!")
 }
 
 func generateID() string {
@@ -68,7 +102,11 @@ func Run(args []string) {
 	}
 
 	applyCgroups(cmd.Process.Pid)
-	setupNetwork(cmd.Process.Pid, hostPort, containerPort)
+
+	containerIP := getAvailableIP()
+	hostVeth := "veth-" + containerID[:4]
+
+	setupNetwork(cmd.Process.Pid, hostPort, containerPort, containerIP, hostVeth)
 
 	// save to state database
 	state := ContainerState{
@@ -76,6 +114,8 @@ func Run(args []string) {
 		PID:     cmd.Process.Pid,
 		Status:  "Running",
 		Command: strings.Join(args, " "),
+		IP:      containerIP,
+		Veth:    hostVeth,
 	}
 
 	stateBytes, _ := json.Marshal(state)
@@ -83,7 +123,7 @@ func Run(args []string) {
 	statePath := filepath.Join("/var/lib/o1/state", containerID+".json")
 	os.WriteFile(statePath, stateBytes, 0644)
 
-	fmt.Printf("Container started successfully!\nID: %s\nPID: %d\n", containerID, cmd.Process.Pid)
+	fmt.Printf("Container started successfully!\nID: %s\nPID: %d\nIP: %s\n", containerID, cmd.Process.Pid, containerIP)
 	os.Exit(0)
 }
 
@@ -119,7 +159,7 @@ func runCmd(name string, args ...string) {
 	}
 }
 
-func setupNetwork(pid int, hostPort string, containerPort string) {
+func setupNetwork(pid int, hostPort string, containerPort string, containerIP string, hostVeth string) {
 	pidStr := strconv.Itoa(pid)
 
 	// create new network namespace symlink
@@ -131,45 +171,41 @@ func setupNetwork(pid int, hostPort string, containerPort string) {
 	}
 	defer os.Remove(netnsPath)
 
-	// clean up old interface
-	exec.Command("ip", "link", "del", "veth0").Run()
+	// clean up old interface (using the dynamic name)
+	exec.Command("ip", "link", "del", hostVeth).Run()
 
-	// create virtual ethernet pair
-	runCmd("ip", "link", "add", "dev", "veth0", "type", "veth", "peer", "name", "veth1")
+	// create virtual ethernet pair (using the dynamic host name)
+	runCmd("ip", "link", "add", "dev", hostVeth, "type", "veth", "peer", "name", "veth1")
 
 	// move veth1 to container's network namespace
 	runCmd("ip", "link", "set", "dev", "veth1", "netns", pidStr)
 
-	// configure host (veth0)
-	runCmd("ip", "addr", "add", "10.0.0.1/24", "dev", "veth0")
-	runCmd("ip", "link", "set", "dev", "veth0", "up")
+	// configure host (using the dynamic host name)
+	runCmd("ip", "addr", "add", "10.0.0.1/24", "dev", hostVeth)
+	runCmd("ip", "link", "set", "dev", hostVeth, "up")
 
-	// configure container (veth1)
-	runCmd("nsenter", "-t", pidStr, "-n", "ip", "addr", "add", "10.0.0.2/24", "dev", "veth1")
+	// configure container (using the dynamic container IP)
+	runCmd("nsenter", "-t", pidStr, "-n", "ip", "addr", "add", containerIP+"/24", "dev", "veth1")
 	runCmd("nsenter", "-t", pidStr, "-n", "ip", "link", "set", "dev", "veth1", "up")
 	runCmd("nsenter", "-t", pidStr, "-n", "ip", "link", "set", "dev", "lo", "up")
 	runCmd("nsenter", "-t", pidStr, "-n", "ip", "route", "add", "default", "via", "10.0.0.1")
 
-	// port forwarding
-	// allow linux to route localhost traffic through our virtual cable
-	runCmd("sysctl", "-w", "net.ipv4.conf.veth0.route_localnet=1")
-	// allow container to reach the internet
-	runCmd("iptables", "-t", "nat", "-A", "POSTROUTING", "-s", "10.0.0.2/32", "-j", "MASQUERADE")
-	// route traffic from port 8080 into the container
-	runCmd("iptables", "-t", "nat", "-A", "PREROUTING", "-p", "tcp", "--dport", "8080", "-j", "DNAT", "--to-destination", "10.0.0.2:80")
-	runCmd("iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "--dport", "8080", "-j", "DNAT", "--to-destination", "10.0.0.2:80")
-	// disguise the packet so the container knows exactly how to reply
-	runCmd("iptables", "-t", "nat", "-A", "POSTROUTING", "-d", "10.0.0.2/32", "-p", "tcp", "--dport", "80", "-j", "MASQUERADE")
-
 	// dynamic routing
-	// setup port forwarding if port is provided
+	// setup port forwarding only if a port is provided
 	if hostPort != "" && containerPort != "" {
-		runCmd("sysctl", "-w", "net.ipv4.conf.veth0.route_localnet=1")
-		runCmd("iptables", "-t", "nat", "-A", "POSTROUTING", "-s", "10.0.0.2/32", "-j", "MASQUERADE")
+
+		// allow linux to route localhost traffic through dynamic virtual cables
+		sysctlOpt := fmt.Sprintf("net.ipv4.conf.%s.route_localnet=1", hostVeth)
+		runCmd("sysctl", "-w", sysctlOpt)
+
+		// allow container communicating with internet
+		runCmd("iptables", "-t", "nat", "-A", "POSTROUTING", "-s", containerIP+"/32", "-j", "MASQUERADE")
 
 		// inject the dynamic variables into iptables
-		runCmd("iptables", "-t", "nat", "-A", "PREROUTING", "-p", "tcp", "--dport", hostPort, "-j", "DNAT", "--to-destination", "10.0.0.2:"+containerPort)
-		runCmd("iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "--dport", hostPort, "-j", "DNAT", "--to-destination", "10.0.0.2:"+containerPort)
-		runCmd("iptables", "-t", "nat", "-A", "POSTROUTING", "-d", "10.0.0.2/32", "-p", "tcp", "--dport", containerPort, "-j", "MASQUERADE")
+		runCmd("iptables", "-t", "nat", "-A", "PREROUTING", "-p", "tcp", "--dport", hostPort, "-j", "DNAT", "--to-destination", containerIP+":"+containerPort)
+		runCmd("iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "--dport", hostPort, "-j", "DNAT", "--to-destination", containerIP+":"+containerPort)
+
+		// disguise the packet so the container knows exactly how to reply
+		runCmd("iptables", "-t", "nat", "-A", "POSTROUTING", "-d", containerIP+"/32", "-p", "tcp", "--dport", containerPort, "-j", "MASQUERADE")
 	}
 }

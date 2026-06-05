@@ -26,7 +26,7 @@ func Ps() {
 
 	// Initialize a tabwriter
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 4, ' ', 0)
-	fmt.Fprintln(w, "CONTAINER ID\tPID\tSTATUS\tCOMMAND")
+	fmt.Fprintln(w, "CONTAINER ID\tPID\tIP ADDRESS\tSTATUS\tCOMMAND")
 
 	for _, file := range files {
 		if filepath.Ext(file.Name()) == ".json" {
@@ -45,7 +45,7 @@ func Ps() {
 				state.Status = "Dead"
 			}
 
-			fmt.Fprintf(w, "%s\t%d\t%s\t%s\n", state.ID, state.PID, state.Status, state.Command)
+			fmt.Fprintf(w, "%s\t%d\t%s\t%s\t%s\n", state.ID, state.PID, state.IP, state.Status, state.Command)
 		}
 	}
 	w.Flush()
