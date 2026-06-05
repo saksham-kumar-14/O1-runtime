@@ -37,6 +37,12 @@ func main() {
 			os.Exit(1)
 		}
 		container.Logs(os.Args[2])
+	case "rm":
+		if len(os.Args) < 3 {
+			fmt.Println("Usage: o1 rm <container_id>")
+			os.Exit(1)
+		}
+		container.Remove(os.Args[2])
 	default:
 		panic("Bad command")
 	}

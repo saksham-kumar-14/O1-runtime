@@ -9,6 +9,7 @@
 - `o1 stop <CONTAINER_ID>`: stop the container
 - `o1 exec <CONTAINER_ID> <COMMAND>`
 - `o1 logs <CONTAINER_ID>`
+- `o1 rm <CONTAINER_ID>`
 - Dynamic Networking
 - IP allocators for the containers
 - Bind Mount/Volumes: allow to map folder from host directly into the container

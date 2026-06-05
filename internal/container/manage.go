@@ -135,3 +135,43 @@ func Logs(containerID string) {
 	fmt.Printf("LOGS FOR : %sn", containerID)
 	fmt.Print(string(data))
 }
+
+// remove forcefully a container and cleans up all its resources
+func Remove(containerID string) {
+	stateDir := "/var/lib/o1/state"
+	statePath := filepath.Join(stateDir, containerID+".json")
+
+	data, err := os.ReadFile(statePath)
+	if err != nil {
+		fmt.Printf("Container %s not found.\n", containerID)
+		return
+	}
+
+	var state ContainerState
+	json.Unmarshal(data, &state)
+
+	// kill process if still running
+	if state.PID > 0 {
+		fmt.Printf("Killing process with PID: %s\n", state.PID)
+		syscall.Kill(state.PID, syscall.SIGKILL)
+	}
+
+	// clean the host's virtual ethernet cable
+	if state.Veth != "" {
+		fmt.Printf("Removing network interface: %s\n", state.Veth)
+		exec.Command("ip", "link", "del", state.Veth).Run()
+	}
+
+	// delete the filesystem and logs
+	containerDir := filepath.Join("/var/lib/o1/containers", containerID)
+	fmt.Printf("Deleting filesytem and logs at: %s\n", containerDir)
+	os.RemoveAll(containerDir)
+
+	// remove from `o1 ps`
+	os.Remove(statePath)
+
+	// flush all iptable rules to prevent shadowing
+	exec.Command("iptables", "-t", "nat", "-F").Run()
+
+	fmt.Printf("Container %s successfully removed!\n", containerID)
+}
