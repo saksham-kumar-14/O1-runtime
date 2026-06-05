@@ -84,8 +84,19 @@ func Child(args []string) {
 	}
 
 	// give DNS to merged fs
-	resolvPath := filepath.Join(rootfsPath, "etc", "resolv.conf")
-	os.WriteFile(resolvPath, []byte("nameserver 8.8.8.8\n"), 0644)
+	// explicity create /etc and delete broken symlinks
+	etcPath := filepath.Join(rootfsPath, "etc")
+	if err := os.MkdirAll(etcPath, 0755); err != nil {
+		panic(fmt.Sprintf("Failed to create /etc folder: %v", err))
+	}
+
+	resolvPath := filepath.Join(etcPath, "resolv.conf")
+	os.Remove(resolvPath)
+
+	dnsConfig := "nameserver 8.8.8.8\nnameserver 1.1.1.1\n"
+	if err := os.WriteFile(resolvPath, []byte(dnsConfig), 0644); err != nil {
+		panic(fmt.Sprintf("Failed to write resolv.conf: %v", err))
+	}
 
 	// pivot root into merged fs
 	if err := os.MkdirAll(oldfsPath, 0700); err != nil {

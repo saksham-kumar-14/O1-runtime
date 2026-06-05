@@ -220,14 +220,16 @@ func setupNetwork(pid int, ports []PortMapping, containerIP string, hostVeth str
 	runCmd("nsenter", "-t", pidStr, "-n", "ip", "link", "set", "dev", "lo", "up")
 	runCmd("nsenter", "-t", pidStr, "-n", "ip", "route", "add", "default", "via", "10.0.0.1")
 
+
+	// for internet access
+	// allow linux to route localhost traffic through our network bridge
+	runCmd("sysctl", "-w", "net.ipv4.conf.o1-br0.route_localnet=1")
+
+	// allow container to reach the outside internet via NAT masquerade
+	runCmd("iptables", "-t", "nat", "-A", "POSTROUTING", "-s", containerIP+"/32", "-j", "MASQUERADE")
+
 	// dyanmic port Forwrding routed through the bridge
 	if len(ports) > 0 {
-		// allow linux to route localhost traffic through our network bridge
-		runCmd("sysctl", "-w", "net.ipv4.conf.o1-br0.route_localnet=1")
-
-		// allow container to reach the outside internet via NAT masquerade
-		runCmd("iptables", "-t", "nat", "-A", "POSTROUTING", "-s", containerIP+"/32", "-j", "MASQUERADE")
-
 		// route incoming host traffic straight to the dynamic container IP
 		for _, p := range ports {
 			runCmd("iptables", "-t", "nat", "-A", "PREROUTING", "-p", "tcp", "--dport", p.HostPort, "-j", "DNAT", "--to-destination", containerIP+":"+p.ContainerPort)
