@@ -18,6 +18,6 @@
     - By the time host is done with this network stuff, the container finishes the light task and shut down
     - That's why `nsenter` throws error `No such process found!` ------> but there is no process!
 - Environment Variables: config data for containers
-- [ ] Multiple port mapping
+- Multiple port mapping
 - [ ] Named containers + calling them by unique initials
 - [ ] Dynamic resource allocation: as of now limits are hardcoded in `applyCGroups()`
