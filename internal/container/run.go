@@ -70,6 +70,7 @@ func Run(args []string) {
 	// dynamic port parsing
 	hostPort := ""
 	containerPort := ""
+	volume := ""
 	var execArgs []string
 
 	for i := 0; i < len(args); i++ {
@@ -80,6 +81,9 @@ func Run(args []string) {
 				containerPort = ports[1]
 			}
 			i++
+		} else if args[i] == "-v" && i+1 < len(args) {
+			volume = args[i+1]
+			i++
 		} else {
 			execArgs = append(execArgs, args[i])
 		}
@@ -87,6 +91,8 @@ func Run(args []string) {
 
 	cmdArgs := append([]string{"child", containerID}, execArgs...)
 	cmd := exec.Command("/proc/self/exe", cmdArgs...)
+
+	cmd.Env = append(os.Environ(), "O1_VOLUME="+volume)		// put volume data in child process
 
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout

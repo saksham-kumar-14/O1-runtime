@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 )
 
@@ -56,6 +57,30 @@ func Child(args []string) {
 	opts := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", imageDir, upperDir, workDir)
 	if err := syscall.Mount("overlay", rootfsPath, "overlay", 0, opts); err != nil {
 		panic(fmt.Sprintf("Error mounting overlayfs: %v", err))
+	}
+
+	// persistant storage
+	vol := os.Getenv("O1_VOLUME")
+	if vol != "" {
+		temp := strings.Split(vol, ":")
+		if len(temp) == 2 {
+			hostPath := temp[0]
+			containerPath := filepath.Join(rootfsPath, temp[1])
+
+			// just for sanity check kind of
+			if err := os.MkdirAll(hostPath, 0777); err != nil {
+				panic(fmt.Sprintf("Host path error: %v", err))
+			}
+			if err := os.MkdirAll(containerPath, 0777); err != nil {
+				panic(fmt.Sprintf("Container path error: %v", err))
+			}
+
+			// MS_REC ensures if there are mounts inside the host folder, they carry over too
+			err := syscall.Mount(hostPath, containerPath, "bind", syscall.MS_BIND|syscall.MS_REC, "")
+			if err != nil {
+				panic(fmt.Sprintf("Failed to bind mount volume: %v\n", err))
+			}
+		}
 	}
 
 	// give DNS to merged fs
