@@ -21,3 +21,5 @@
 - Multiple port mapping
 - [ ] Named containers + calling them by unique initials
 - [ ] Dynamic resource allocation: as of now limits are hardcoded in `applyCGroups()`
+
+>Read the architecture at [architecture docs](./docs/core.md)
