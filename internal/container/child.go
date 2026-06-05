@@ -109,6 +109,15 @@ func Child(args []string) {
 
 	cmd := exec.Command(execArgs[0], execArgs[1:]...)
 
+	// Environemnt Scrubber
+	var userEnv []string
+	for _, env := range os.Environ() {
+		if !strings.HasPrefix(env, "O1_") {
+			userEnv = append(userEnv, env)
+		}
+	}
+	cmd.Env = userEnv // environment scrubbing
+
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
