@@ -25,6 +25,11 @@ type ContainerState struct {
 	Veth    string `json:"veth"`
 }
 
+type PortMapping struct {
+	HostPort string
+	ContainerPort string
+}
+
 func getAvailableIP() string {
 	stateDir := "/var/lib/o1/state"
 	files, err := os.ReadDir(stateDir)
@@ -68,19 +73,19 @@ func Run(args []string) {
 	containerID := generateID()
 
 	// dynamic port parsing
-	hostPort := ""
-	containerPort := ""
+	// hostPort := ""
+	// containerPort := ""
 	volume := ""
 
 	var envVars []string	// for env variables `-e`
 	var execArgs []string
+	var ports []PortMapping		// for multiple ports
 
 	for i := 0; i < len(args); i++ {
 		if args[i] == "-p" && i+1 < len(args) {
-			ports := strings.Split(args[i+1], ":")
-			if len(ports) == 2 {
-				hostPort = ports[0]
-				containerPort = ports[1]
+			p := strings.Split(args[i+1], ":")
+			if len(p) == 2 {
+				ports = append(ports, PortMapping{HostPort: p[0], ContainerPort: p[1]})
 			}
 			i++
 		} else if args[i] == "-v" && i+1 < len(args) {
@@ -118,7 +123,7 @@ func Run(args []string) {
 	containerIP := getAvailableIP()
 	hostVeth := "veth-" + containerID[:4]
 
-	setupNetwork(cmd.Process.Pid, hostPort, containerPort, containerIP, hostVeth)
+	setupNetwork(cmd.Process.Pid, ports, containerIP, hostVeth)
 
 	// save to state database
 	state := ContainerState{
@@ -171,7 +176,7 @@ func runCmd(name string, args ...string) {
 	}
 }
 
-func setupNetwork(pid int, hostPort string, containerPort string, containerIP string, hostVeth string) {
+func setupNetwork(pid int, ports []PortMapping, containerIP string, hostVeth string) {
 	pidStr := strconv.Itoa(pid)
 
 	// ensure the core O1 Network Bridge exists
@@ -215,8 +220,8 @@ func setupNetwork(pid int, hostPort string, containerPort string, containerIP st
 	runCmd("nsenter", "-t", pidStr, "-n", "ip", "link", "set", "dev", "lo", "up")
 	runCmd("nsenter", "-t", pidStr, "-n", "ip", "route", "add", "default", "via", "10.0.0.1")
 
-	// dynamic port Forwarding routed through the bridge
-	if hostPort != "" && containerPort != "" {
+	// dyanmic port Forwrding routed through the bridge
+	if len(ports) > 0 {
 		// allow linux to route localhost traffic through our network bridge
 		runCmd("sysctl", "-w", "net.ipv4.conf.o1-br0.route_localnet=1")
 
@@ -224,8 +229,10 @@ func setupNetwork(pid int, hostPort string, containerPort string, containerIP st
 		runCmd("iptables", "-t", "nat", "-A", "POSTROUTING", "-s", containerIP+"/32", "-j", "MASQUERADE")
 
 		// route incoming host traffic straight to the dynamic container IP
-		runCmd("iptables", "-t", "nat", "-A", "PREROUTING", "-p", "tcp", "--dport", hostPort, "-j", "DNAT", "--to-destination", containerIP+":"+containerPort)
-		runCmd("iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "--dport", hostPort, "-j", "DNAT", "--to-destination", containerIP+":"+containerPort)
-		runCmd("iptables", "-t", "nat", "-A", "POSTROUTING", "-d", containerIP+"/32", "-p", "tcp", "--dport", containerPort, "-j", "MASQUERADE")
+		for _, p := range ports {
+			runCmd("iptables", "-t", "nat", "-A", "PREROUTING", "-p", "tcp", "--dport", p.HostPort, "-j", "DNAT", "--to-destination", containerIP+":"+p.ContainerPort)
+			runCmd("iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "--dport", p.HostPort, "-j", "DNAT", "--to-destination", containerIP+":"+p.ContainerPort)
+			runCmd("iptables", "-t", "nat", "-A", "POSTROUTING", "-d", containerIP+"/32", "-p", "tcp", "--dport", p.ContainerPort, "-j", "MASQUERADE")
+		}
 	}
 }

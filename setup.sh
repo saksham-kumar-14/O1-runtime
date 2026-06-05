@@ -3,7 +3,7 @@
 set -e
 
 if [ "$EUID" -ne 0 ]; then
-    echo "❌ Error: run as sudo ./install.sh"
+    echo "❌ Error: run as sudo ./setup.sh"
     exit 1
 fi
 
