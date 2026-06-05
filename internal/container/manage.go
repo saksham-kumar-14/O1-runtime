@@ -117,3 +117,21 @@ func Exec(containerID string, userCmd []string) {
 		fmt.Printf("Exec command failed: %v\n", err)
 	}
 }
+
+// logs for debugging why my containers are crashing
+func Logs(containerID string) {
+	logPath := filepath.Join("/var/lib/o1/containers", containerID, "logs.txt")
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Printf("Error: No logs found for container '%s'.\n", containerID)
+		} else {
+			fmt.Printf("Error reading logs: %v\n", err)
+		}
+		return
+	}
+
+	fmt.Printf("LOGS FOR : %sn", containerID)
+	fmt.Print(string(data))
+}

@@ -31,6 +31,12 @@ func main() {
 			os.Exit(1)
 		}
 		container.Exec(os.Args[2], os.Args[3:])
+	case "logs":
+		if len(os.Args) < 3 {
+			fmt.Println("Usage: o1 logs <container_id>")
+			os.Exit(1)
+		}
+		container.Logs(os.Args[2])
 	default:
 		panic("Bad command")
 	}

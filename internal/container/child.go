@@ -39,6 +39,13 @@ func Child(args []string) {
 	os.MkdirAll(workDir, 0777)
 	os.MkdirAll(rootfsPath, 0777)
 
+	logPath := filepath.Join(containerDir, "logs.txt")
+	logFile, err := os.Create(logPath)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create log file: %v", err))
+	}
+	defer logFile.Close()
+
 	// base image sanity check
 	if _, err := os.Stat(imageDir); os.IsNotExist(err) {
 		fmt.Printf("Container Error: Base image not found at %s\n", imageDir)
@@ -78,8 +85,8 @@ func Child(args []string) {
 	cmd := exec.Command(execArgs[0], execArgs[1:]...)
 
 	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
 	if err := cmd.Run(); err != nil {
 		os.Exit(1)
 	}

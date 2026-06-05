@@ -140,7 +140,7 @@ func applyCgroups(pid int) {
 		panic(fmt.Sprintf("Failed to write pids.max: %v", err))
 	}
 	memoryMaxPath := filepath.Join(dir, "memory.max")
-	if err := os.WriteFile(memoryMaxPath, []byte("52428800"), 0700); err != nil {
+	if err := os.WriteFile(memoryMaxPath, []byte("536870912"), 0700); err != nil {
 		panic(fmt.Sprintf("Failed to write memory.max: %v", err))
 	}
 
@@ -162,50 +162,58 @@ func runCmd(name string, args ...string) {
 func setupNetwork(pid int, hostPort string, containerPort string, containerIP string, hostVeth string) {
 	pidStr := strconv.Itoa(pid)
 
-	// create new network namespace symlink
+	// ensure the core O1 Network Bridge exists
+	exec.Command("ip", "link", "add", "name", "o1-br0", "type", "bridge").Run()
+	exec.Command("ip", "addr", "add", "10.0.0.1/24", "dev", "o1-br0").Run()
+	exec.Command("ip", "link", "set", "dev", "o1-br0", "up").Run()
+
+	// enable bridge firewall forwarding
+	runCmd("sysctl", "-w", "net.ipv4.ip_forward=1")
+	runCmd("iptables", "-A", "FORWARD", "-i", "o1-br0", "-j", "ACCEPT")
+	runCmd("iptables", "-A", "FORWARD", "-o", "o1-br0", "-j", "ACCEPT")
+
+	// create network namespace symlink
 	os.MkdirAll("/var/run/netns", 0755)
 	netnsPath := filepath.Join("/var/run/netns", pidStr)
-	os.Remove(netnsPath) // Clean up just in case
+	os.Remove(netnsPath)
 	if err := os.Symlink(filepath.Join("/proc", pidStr, "ns", "net"), netnsPath); err != nil {
 		fmt.Printf("Warning: Failed to symlink netns: %v\n", err)
 	}
 	defer os.Remove(netnsPath)
 
-	// clean up old interface (using the dynamic name)
+	// a unique temporary name for the child interface to avoid host-side collisions
+	childVeth := "veth-ch-" + pidStr
+
 	exec.Command("ip", "link", "del", hostVeth).Run()
+	exec.Command("ip", "link", "del", childVeth).Run()
 
-	// create virtual ethernet pair (using the dynamic host name)
-	runCmd("ip", "link", "add", "dev", hostVeth, "type", "veth", "peer", "name", "veth1")
+	// create virtual ethernet pair using unique temporary names
+	runCmd("ip", "link", "add", "dev", hostVeth, "type", "veth", "peer", "name", childVeth)
 
-	// move veth1 to container's network namespace
-	runCmd("ip", "link", "set", "dev", "veth1", "netns", pidStr)
-
-	// configure host (using the dynamic host name)
-	runCmd("ip", "addr", "add", "10.0.0.1/24", "dev", hostVeth)
+	// the host side of the cable goes directly into our virtual switch bridge
+	runCmd("ip", "link", "set", "dev", hostVeth, "master", "o1-br0")
 	runCmd("ip", "link", "set", "dev", hostVeth, "up")
 
-	// configure container (using the dynamic container IP)
-	runCmd("nsenter", "-t", pidStr, "-n", "ip", "addr", "add", containerIP+"/24", "dev", "veth1")
-	runCmd("nsenter", "-t", pidStr, "-n", "ip", "link", "set", "dev", "veth1", "up")
+	// move the unique child interface into the container's network namespace
+	runCmd("ip", "link", "set", "dev", childVeth, "netns", pidStr)
+
+	// configure the interface inside the container namespace using the bridge gateway
+	runCmd("nsenter", "-t", pidStr, "-n", "ip", "addr", "add", containerIP+"/24", "dev", childVeth)
+	runCmd("nsenter", "-t", pidStr, "-n", "ip", "link", "set", "dev", childVeth, "up")
 	runCmd("nsenter", "-t", pidStr, "-n", "ip", "link", "set", "dev", "lo", "up")
 	runCmd("nsenter", "-t", pidStr, "-n", "ip", "route", "add", "default", "via", "10.0.0.1")
 
-	// dynamic routing
-	// setup port forwarding only if a port is provided
+	// dynamic port Forwarding routed through the bridge
 	if hostPort != "" && containerPort != "" {
+		// allow linux to route localhost traffic through our network bridge
+		runCmd("sysctl", "-w", "net.ipv4.conf.o1-br0.route_localnet=1")
 
-		// allow linux to route localhost traffic through dynamic virtual cables
-		sysctlOpt := fmt.Sprintf("net.ipv4.conf.%s.route_localnet=1", hostVeth)
-		runCmd("sysctl", "-w", sysctlOpt)
-
-		// allow container communicating with internet
+		// allow container to reach the outside internet via NAT masquerade
 		runCmd("iptables", "-t", "nat", "-A", "POSTROUTING", "-s", containerIP+"/32", "-j", "MASQUERADE")
 
-		// inject the dynamic variables into iptables
+		// route incoming host traffic straight to the dynamic container IP
 		runCmd("iptables", "-t", "nat", "-A", "PREROUTING", "-p", "tcp", "--dport", hostPort, "-j", "DNAT", "--to-destination", containerIP+":"+containerPort)
 		runCmd("iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp", "--dport", hostPort, "-j", "DNAT", "--to-destination", containerIP+":"+containerPort)
-
-		// disguise the packet so the container knows exactly how to reply
 		runCmd("iptables", "-t", "nat", "-A", "POSTROUTING", "-d", containerIP+"/32", "-p", "tcp", "--dport", containerPort, "-j", "MASQUERADE")
 	}
 }
