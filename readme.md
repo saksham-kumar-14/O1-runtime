@@ -19,7 +19,7 @@
     - That's why `nsenter` throws error `No such process found!` ------> but there is no process!
 - Environment Variables: config data for containers `-e <KEY=VALUE>`
 - Multiple port mapping
+- Dynamic resource allocation: as of now limits are hardcoded in `applyCGroups()`
 - [ ] Named containers + calling them by unique initials
-- [ ] Dynamic resource allocation: as of now limits are hardcoded in `applyCGroups()`
 
 >Read the architecture at [architecture docs](./docs/core.md)

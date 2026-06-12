@@ -26,7 +26,7 @@ type ContainerState struct {
 }
 
 type PortMapping struct {
-	HostPort string
+	HostPort      string
 	ContainerPort string
 }
 
@@ -39,13 +39,13 @@ func getAvailableIP() string {
 
 	doneIPs := make(map[string]bool)
 
-	for _, file := range files{
-		if filepath.Ext(file.Name()) == ".json"{
+	for _, file := range files {
+		if filepath.Ext(file.Name()) == ".json" {
 			data, err := os.ReadFile(filepath.Join(stateDir, file.Name()))
-			if err == nil{
+			if err == nil {
 				var state ContainerState
 				json.Unmarshal(data, &state)
-				if state.IP != ""{
+				if state.IP != "" {
 					doneIPs[state.IP] = true
 				}
 			}
@@ -77,9 +77,12 @@ func Run(args []string) {
 	// containerPort := ""
 	volume := ""
 
-	var envVars []string	// for env variables `-e`
+	memoryLimit := "" // for dynamic resource allocation
+	pidsLimit := ""   // for dynamic resource allocation
+
+	var envVars []string // for env variables `-e`
 	var execArgs []string
-	var ports []PortMapping		// for multiple ports
+	var ports []PortMapping // for multiple ports
 
 	for i := 0; i < len(args); i++ {
 		if args[i] == "-p" && i+1 < len(args) {
@@ -94,6 +97,12 @@ func Run(args []string) {
 		} else if args[i] == "-e" && i+1 < len(args) {
 			envVars = append(envVars, args[i+1])
 			i++
+		} else if args[i] == "--memory" && i+1 < len(args) {
+			memoryLimit = args[i+1]
+			i++
+		} else if args[i] == "--pids" && i+1 < len(args) {
+			pidsLimit = args[i+1]
+			i++
 		} else {
 			execArgs = append(execArgs, args[i])
 		}
@@ -102,8 +111,8 @@ func Run(args []string) {
 	cmdArgs := append([]string{"child", containerID}, execArgs...)
 	cmd := exec.Command("/proc/self/exe", cmdArgs...)
 
-	cmd.Env = append(os.Environ(), "O1_VOLUME="+volume)		// put volume data in child process
-	cmd.Env = append(cmd.Env, envVars...)					// append environment variables as environment variables
+	cmd.Env = append(os.Environ(), "O1_VOLUME="+volume) // put volume data in child process
+	cmd.Env = append(cmd.Env, envVars...)               // append environment variables as environment variables
 
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -118,7 +127,7 @@ func Run(args []string) {
 		os.Exit(1)
 	}
 
-	applyCgroups(cmd.Process.Pid)
+	applyCgroups(cmd.Process.Pid, containerID, memoryLimit, pidsLimit)
 
 	containerIP := getAvailableIP()
 	hostVeth := "veth-" + containerID[:4]
@@ -144,7 +153,7 @@ func Run(args []string) {
 	os.Exit(0)
 }
 
-func applyCgroups(pid int) {
+func applyCgroups(pid int, containerID string, memoryLimit string, pidsLimit string) {
 	cgPath := "/sys/fs/cgroup"
 	dir := filepath.Join(cgPath, "o1-runtime")
 
@@ -153,11 +162,11 @@ func applyCgroups(pid int) {
 	}
 
 	pidsMaxPath := filepath.Join(dir, "pids.max")
-	if err := os.WriteFile(pidsMaxPath, []byte("20"), 0700); err != nil {
+	if err := os.WriteFile(pidsMaxPath, []byte(pidsLimit), 0700); err != nil {
 		panic(fmt.Sprintf("Failed to write pids.max: %v", err))
 	}
 	memoryMaxPath := filepath.Join(dir, "memory.max")
-	if err := os.WriteFile(memoryMaxPath, []byte("536870912"), 0700); err != nil {
+	if err := os.WriteFile(memoryMaxPath, []byte(memoryLimit), 0700); err != nil {
 		panic(fmt.Sprintf("Failed to write memory.max: %v", err))
 	}
 
@@ -219,7 +228,6 @@ func setupNetwork(pid int, ports []PortMapping, containerIP string, hostVeth str
 	runCmd("nsenter", "-t", pidStr, "-n", "ip", "link", "set", "dev", childVeth, "up")
 	runCmd("nsenter", "-t", pidStr, "-n", "ip", "link", "set", "dev", "lo", "up")
 	runCmd("nsenter", "-t", pidStr, "-n", "ip", "route", "add", "default", "via", "10.0.0.1")
-
 
 	// for internet access
 	// allow linux to route localhost traffic through our network bridge
