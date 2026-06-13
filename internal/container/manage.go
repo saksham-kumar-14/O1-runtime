@@ -171,7 +171,9 @@ func Remove(containerID string) {
 	os.Remove(statePath)
 
 	// flush all iptable rules to prevent shadowing
-	exec.Command("iptables", "-t", "nat", "-F").Run()
+	// safely remove only this specific container's masquerade rule
+	// instead of deleting every single NAT rule on the host
+	exec.Command("iptables", "-t", "nat", "-D", "POSTROUTING", "-s", state.IP+"/32", "-j", "MASQUERADE").Run()
 
 	fmt.Printf("Container %s successfully removed!\n", containerID)
 }
