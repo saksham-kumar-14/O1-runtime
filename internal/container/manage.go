@@ -171,6 +171,10 @@ func Remove(containerID string) {
 	fmt.Printf("Deleting filesytem and logs at: %s\n", containerDir)
 	os.RemoveAll(containerDir)
 
+	// delete the cgroup
+	cgPath := filepath.Join("/sys/fs/cgroup/o1-runtime", containerID)
+	os.RemoveAll(cgPath)
+
 	// remove from `o1 ps`
 	os.Remove(statePath)
 
