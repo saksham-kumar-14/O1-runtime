@@ -78,8 +78,11 @@ func Run(args []string) {
 	// containerPort := ""
 	volume := ""
 
-	memoryLimit := "" // for dynamic resource allocation
-	pidsLimit := ""   // for dynamic resource allocation
+	memoryLimit := "max" // for dynamic resource allocation
+	pidsLimit := "max"   // for dynamic resource allocation
+
+	cpus := ""
+	cpuset := ""
 
 	var envVars []string // for env variables `-e`
 	var execArgs []string
@@ -103,6 +106,12 @@ func Run(args []string) {
 			i++
 		} else if args[i] == "--pids" && i+1 < len(args) {
 			pidsLimit = args[i+1]
+			i++
+		} else if args[i] == "--cpus" && i+1 < len(args) {
+			cpus = args[i+1]
+			i++
+		} else if args[i] == "--cpuset" && i+1 < len(args) {
+			cpuset = args[i+1]
 			i++
 		} else {
 			execArgs = append(execArgs, args[i])
@@ -135,7 +144,7 @@ func Run(args []string) {
 		os.Exit(1)
 	}
 
-	applyCgroups(cmd.Process.Pid, containerID, memoryLimit, pidsLimit)
+	applyCgroups(cmd.Process.Pid, containerID, memoryLimit, pidsLimit, cpus, cpuset)
 
 	containerIP := getAvailableIP()
 	hostVeth := "veth-" + containerID[:4]
@@ -166,12 +175,20 @@ func Run(args []string) {
 	os.Exit(0)
 }
 
-func applyCgroups(pid int, containerID string, memoryLimit string, pidsLimit string) {
+func applyCgroups(pid int, containerID string, memoryLimit string, pidsLimit string, cpus string, cpuset string) {
 	cgPath := "/sys/fs/cgroup"
-	dir := filepath.Join(cgPath, "o1-runtime")
-
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	parentDir := filepath.Join(cgPath, "o1-runtime")
+	if err := os.MkdirAll(parentDir, 0755); err != nil {
 		panic(fmt.Sprintf("Error creating cgroup directory: %v", err))
+	}
+
+	// allow folders inside o1-runtime to control CPU and CPUsets
+	subtreePath := filepath.Join(parentDir, "cgroup.subtree_control")
+	os.WriteFile(subtreePath, []byte("+cpu +cpuset +pids +memory"), 0700)
+
+	dir := filepath.Join(parentDir, containerID)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		panic(fmt.Sprintf("Error creating container cgroup: %v", err))
 	}
 
 	pidsMaxPath := filepath.Join(dir, "pids.max")
@@ -183,10 +200,33 @@ func applyCgroups(pid int, containerID string, memoryLimit string, pidsLimit str
 		panic(fmt.Sprintf("Failed to write memory.max: %v", err))
 	}
 
+	// apply cpu pinning
+	// eg, 0-2 for cores 0,1,2
+	if cpuset != "" {
+		cpusetPath := filepath.Join(dir, "cpuset.cpus")
+		if err := os.WriteFile(cpusetPath, []byte(cpuset), 0700); err != nil {
+			fmt.Printf("Warning: Failed to write cpuset.cpus: %v\n", err)
+		}
+	}
+
+	// apply cpu quota
+	if cpus != "" {
+		cpuVal, err := strconv.ParseFloat(cpus, 64)
+		if err == nil {
+			quota := int(cpuVal * 100000)
+			cpuMaxStr := fmt.Sprintf("%d 100000", quota)
+			cpuMaxPath := filepath.Join(dir, "cpu.max")
+			if err := os.WriteFile(cpuMaxPath, []byte(cpuMaxStr), 0700); err != nil {
+				fmt.Printf("Warning: Failed to write to cpu.max: %v\n", err)
+			}
+		}
+	}
+
 	procsPath := filepath.Join(dir, "cgroup.procs")
 	if err := os.WriteFile(procsPath, []byte(strconv.Itoa(pid)), 0700); err != nil {
 		panic(fmt.Sprintf("Failed to write cgroup.procs: %v", err))
 	}
+
 }
 
 func runCmd(name string, args ...string) {

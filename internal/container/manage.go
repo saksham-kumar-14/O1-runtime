@@ -134,7 +134,7 @@ func Logs(containerID string) {
 		return
 	}
 
-	fmt.Printf("LOGS FOR : %sn", containerID)
+	fmt.Printf("LOGS FOR : %s\n", containerID)
 	fmt.Print(string(data))
 }
 

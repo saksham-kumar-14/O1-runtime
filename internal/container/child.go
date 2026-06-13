@@ -150,8 +150,14 @@ func Child(args []string) {
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(logFile, "FATAL Go Runtime Error: %v\n", err)
+		logFile.Sync()
+		logFile.Close()
+
 		os.Exit(1)
 	}
 
+	logFile.Sync()
+	logFile.Close()
 	syscall.Unmount("/proc", 0)
 }
