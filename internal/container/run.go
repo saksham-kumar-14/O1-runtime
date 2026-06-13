@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	// "time"
 )
 
 type ContainerState struct {
@@ -108,6 +109,12 @@ func Run(args []string) {
 		}
 	}
 
+	// create anonymous pipe
+	readPipe, writePipe, err := os.Pipe()
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create anonymous pipe: %v", err))
+	}
+
 	cmdArgs := append([]string{"child", containerID}, execArgs...)
 	cmd := exec.Command("/proc/self/exe", cmdArgs...)
 
@@ -117,6 +124,7 @@ func Run(args []string) {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	cmd.ExtraFiles = []*os.File{readPipe} // pass read end of pipe to child process
 
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Cloneflags: syscall.CLONE_NEWUTS | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWNET,
@@ -148,6 +156,11 @@ func Run(args []string) {
 	os.MkdirAll("/var/lib/o1/state", 0755)
 	statePath := filepath.Join("/var/lib/o1/state", containerID+".json")
 	os.WriteFile(statePath, stateBytes, 0644)
+
+	// fmt.Println("HOST: Sleeping for 3 seconds. The child should be frozen...")
+	// time.Sleep(3 * time.Second)
+
+	writePipe.Close() // closing writePipe will send EOF signal to signal to child
 
 	fmt.Printf("Container started successfully!\nID: %s\nPID: %d\nIP: %s\n", containerID, cmd.Process.Pid, containerIP)
 	os.Exit(0)

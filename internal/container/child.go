@@ -2,6 +2,7 @@ package container
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -124,6 +125,15 @@ func Child(args []string) {
 
 	syscall.Unmount("/oldfs", syscall.MNT_DETACH)
 	os.RemoveAll("/oldfs")
+
+	// use the readPipe passed by parent
+	pipe := os.NewFile(3, "pipe") // 3: extrafiles
+	_, err = io.ReadAll(pipe)
+	if err != nil {
+		fmt.Printf("Error while reading sync pipe: %v\n", err)
+		os.Exit(1)
+	}
+	pipe.Close()
 
 	cmd := exec.Command(execArgs[0], execArgs[1:]...)
 
