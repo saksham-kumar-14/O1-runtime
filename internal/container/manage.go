@@ -78,6 +78,8 @@ func Stop(containerID string) {
 
 	// delete temp overlay workspace
 	containerDir := filepath.Join("/var/lib/o1/containers", containerID)
+	rootfsPath := filepath.Join(containerDir, "fs")
+	syscall.Unmount(rootfsPath, syscall.MNT_DETACH) // forcefully unmount overlayFS
 	os.RemoveAll(containerDir)
 
 	fmt.Printf("Container %s successfully stopped and removed.\n", state.ID)
@@ -164,6 +166,8 @@ func Remove(containerID string) {
 
 	// delete the filesystem and logs
 	containerDir := filepath.Join("/var/lib/o1/containers", containerID)
+	rootfsPath := filepath.Join(containerDir, "fs")
+	syscall.Unmount(rootfsPath, syscall.MNT_DETACH) // forcefully unmount overlayFS
 	fmt.Printf("Deleting filesytem and logs at: %s\n", containerDir)
 	os.RemoveAll(containerDir)
 
