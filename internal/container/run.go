@@ -126,6 +126,24 @@ func Run(args []string) {
 	imageName := execArgs[0]
 	containerCmd := execArgs[1:]
 
+	// format the image name exactly as the registry saves it
+	checkName := imageName
+	if !strings.Contains(checkName, ":") {
+		checkName += "_latest"
+	}
+	if !strings.Contains(checkName, "/") {
+		checkName = "library_" + checkName
+	} else {
+		checkName = strings.ReplaceAll(checkName, "/", "_")
+	}
+
+	imagePath := filepath.Join("/var/lib/o1/images", checkName)
+	if _, err := os.Stat(imagePath); os.IsNotExist(err) {
+		fmt.Printf("Error: Image '%s' not found locally.\n", imageName)
+		fmt.Printf("Please download it first using: sudo o1 pull %s\n", imageName)
+		os.Exit(1)
+	}
+
 	// create anonymous pipe
 	readPipe, writePipe, err := os.Pipe()
 	if err != nil {
