@@ -31,6 +31,14 @@ type PortMapping struct {
 	ContainerPort string
 }
 
+type OCIConfig struct {
+	Config struct {
+		Entrypoint []string `json:"Entrypoint"`
+		Cmd        []string `json:"Cmd"`
+		Env        []string `json:"Env"`
+	} `json:"config"`
+}
+
 func getAvailableIP() string {
 	stateDir := "/var/lib/o1/state"
 	files, err := os.ReadDir(stateDir)

@@ -22,6 +22,7 @@ func printHelp() {
 	fmt.Println("  pull <image>       Download an image from Docker Hub")
 	fmt.Println("  images             List downloaded images")
 	fmt.Println("  rmi <image>        Remove a downloaded image")
+	fmt.Println("  build <file> <name> Build a custom image from a Dockerfile")
 	fmt.Println("\nInternal Commands:")
 	fmt.Println("  child              (Do not call manually) Init process inside namespace")
 }
@@ -83,6 +84,12 @@ func main() {
 			os.Exit(1)
 		}
 		container.Rmi(os.Args[2])
+	case "build":
+		if len(os.Args) < 4 {
+			fmt.Println("Usage: sudo o1 build <path/to/Dockerfile> <new_image_name>")
+			os.Exit(1)
+		}
+		container.Build(os.Args[2], os.Args[3])
 	case "help", "--help", "-h":
 		printHelp()
 	default:
