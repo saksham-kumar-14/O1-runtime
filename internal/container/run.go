@@ -132,7 +132,7 @@ func Run(args []string) {
 		os.Exit(1)
 	}
 	imageName := execArgs[0]
-	containerCmd := execArgs[1:]
+	userCmd := execArgs[1:]
 
 	// format the image name exactly as the registry saves it
 	checkName := imageName
@@ -151,6 +151,35 @@ func Run(args []string) {
 		fmt.Printf("Please download it first using: sudo o1 pull %s\n", imageName)
 		os.Exit(1)
 	}
+
+	configPath := filepath.Join(imagePath, "config.json")
+	configData, err := os.ReadFile(configPath)
+
+	var oci OCIConfig
+	if err == nil {
+		json.Unmarshal(configData, &oci)
+	}
+	envVars = append(oci.Config.Env, envVars...)
+
+	var finalCmd []string
+	if len(userCmd) > 0 {
+		// If user provides a cmd, it overrides the default Cmd
+		// but appends to the Entrypoint if one exists.
+		if len(oci.Config.Entrypoint) > 0 {
+			finalCmd = append(oci.Config.Entrypoint, userCmd...)
+		} else {
+			finalCmd = userCmd
+		}
+	} else {
+		// If user provides nothing, combine Entrypoint + default Cmd
+		finalCmd = append(oci.Config.Entrypoint, oci.Config.Cmd...)
+	}
+
+	if len(finalCmd) == 0 {
+		fmt.Println("Error: No command specified and no default Cmd/Entrypoint found in image.")
+		os.Exit(1)
+	}
+	containerCmd := finalCmd
 
 	// create anonymous pipe
 	readPipe, writePipe, err := os.Pipe()
