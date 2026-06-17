@@ -1,4 +1,3 @@
-// main.go
 package main
 
 import (
@@ -23,8 +22,6 @@ func printHelp() {
 	fmt.Println("  images             List downloaded images")
 	fmt.Println("  rmi <image>        Remove a downloaded image")
 	fmt.Println("  build <file> <name> Build a custom image from a Dockerfile")
-	fmt.Println("\nInternal Commands:")
-	fmt.Println("  child              (Do not call manually) Init process inside namespace")
 }
 
 func main() {
@@ -33,7 +30,20 @@ func main() {
 		os.Exit(1)
 	}
 
-	switch os.Args[1] {
+	cmd := os.Args[1]
+	if cmd == "help" || cmd == "--help" || cmd == "-h" {
+		printHelp()
+		os.Exit(0)
+	}
+
+	// ensuring the engine always runs with required privileges.
+	if os.Geteuid() != 0 {
+		fmt.Println("Error: o1 engine requires root privileges to manage namespaces and network bridges.")
+		fmt.Printf("Please run your command with sudo: sudo o1 %s\n", cmd)
+		os.Exit(1)
+	}
+
+	switch cmd {
 	case "run":
 		container.Run(os.Args[2:])
 	case "child":
@@ -65,10 +75,6 @@ func main() {
 		}
 		container.Remove(os.Args[2])
 	case "stats":
-		if os.Geteuid() != 0 {
-			fmt.Println("Please run as root: sudo o1 stats")
-			os.Exit(1)
-		}
 		container.Stats()
 	case "pull":
 		if len(os.Args) < 3 {
@@ -90,10 +96,8 @@ func main() {
 			os.Exit(1)
 		}
 		container.Build(os.Args[2], os.Args[3])
-	case "help", "--help", "-h":
-		printHelp()
 	default:
-		fmt.Printf("o1: '%s' is not an o1 command.\n", os.Args[1])
+		fmt.Printf("o1: '%s' is not an o1 command.\n", cmd)
 		printHelp()
 		os.Exit(1)
 	}
