@@ -354,3 +354,34 @@ func Images() {
 		w.Flush()
 	}
 }
+
+// delete an image
+func Rmi(image string) {
+	parts := strings.Split(image, ":")
+	repo := parts[0]
+	tag := "latest"
+	if len(parts) == 2 {
+		tag = parts[1]
+	}
+	if !strings.Contains(repo, "/") {
+		repo = "library/" + repo
+	}
+
+	dirName := strings.ReplaceAll(repo, "/", "_") + "_" + tag
+	targetDir := filepath.Join("/var/lib/o1/images", dirName)
+
+	if _, err := os.Stat(targetDir); os.IsNotExist(err) {
+		fmt.Printf("Error: Image '%s' not found.\n", image)
+		return
+	}
+
+	fmt.Printf("Untagged: %s\n", image)
+	fmt.Printf("Deleting filesystem layers at: %s\n", targetDir)
+
+	if err := os.RemoveAll(targetDir); err != nil {
+		fmt.Printf("Error deleting image: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Successfully deleted image: %s\n", image)
+}

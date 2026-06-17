@@ -58,6 +58,12 @@ func main() {
 		container.Pull(os.Args[2])
 	case "images":
 		container.Images()
+	case "rmi":
+		if len(os.Args) < 3 {
+			fmt.Println("Usage: sudo o1 rmi <image>")
+			os.Exit(1)
+		}
+		container.Rmi(os.Args[2])
 	default:
 		panic("Bad command")
 	}
