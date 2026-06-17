@@ -1,18 +1,20 @@
 # Core Architecture
 
-## Isolation (Namespaces and Chroot)
-- **Namespaces:** Utilizes `CLONE_NEWPID`, `CLONE_NEWUTS`, `CLONE_NEWNS`, and `CLONE_NEWNET` to create a execution environment. The container cannot see host processes, host networks, or host mount points.
-- **Filesystem:** Implements `syscall.PivotRoot` to physically teleport the process into the new root filesystem, ensuring it cannot traverse back up to the host OS.
+## Isolation & Security
+- **Namespaces:** Utilizes `CLONE_NEWPID`, `CLONE_NEWUTS`, `CLONE_NEWNS`, and `CLONE_NEWNET` to create an isolated execution environment. The container cannot see host processes, host networks, or host mount points.
+- **Filesystem (Chroot):** Implements `syscall.PivotRoot` to physically teleport the process into the new root filesystem, ensuring it cannot traverse back up to the host OS.
+- **System Call Firewall (Seccomp BPF):** Protects the host kernel from malicious `root` processes inside the container namespace. Compiles a Berkeley Packet Filter (BPF) profile via `libseccomp` and loads it into the kernel prior to payload execution. Intercepts and blocks critical syscalls (e.g., `mount`, `ptrace`, `unshare`, `kexec_load`) by explicitly returning an `EPERM` (Error 1: Operation not permitted) exit code.
 
-## Storage
+## Storage & Image Building
 - **OCI Image Registry:** Natively communicates with the Docker Hub v2 API to authenticate, resolve Multi-Architecture manifests (`amd64`/`arm64`), and download compressed filesystem layers.
+- **Diff-Harvesting Builder:** A native `Dockerfile` parsing engine (`o1 build`). To build custom images, the engine clones a base layer and provisions an ephemeral `o1` container to execute `RUN` instructions. It captures the filesystem modifications exclusively from the `OverlayFS` `upperdir` and commits them to a brand new persistent image layer with a generated OCI `config.json`.
 - **Layered Filesystem:** Uses Linux `OverlayFS` to stack a temporary, writable `upperdir` and `workdir` on top of the extracted, read-only Docker image layers (`lowerdir`).
-- **Virtual Devices:** Automatically mounts `devtmpfs` into the container's `/dev` directory to provide standard Unix I/O devices (like `/dev/null` and `/dev/urandom`), enabling background process execution.
+- **Virtual Devices:** Automatically mounts `devtmpfs` and standard pseudo-filesystems (`/sys`, `/proc`, `/tmp`, `/run`, `/dev/shm`) into the container's root to provide standard Unix I/O and shared memory, enabling complex background daemons like Nginx to fork successfully.
 - **Persistent Volumes:** Supports host-to-container directory mapping using `MS_BIND | MS_REC` syscalls for database and source code persistence.
 
 ## Resource Management (Cgroups v2)
 - Dynamically generates independent control groups (`/sys/fs/cgroup/o1-runtime/<ID>`) for every container using the Linux Cgroups v2 unified hierarchy.
-- **Dynamic Allocation:** Limits are no longer hardcoded. The engine parses CLI flags to dynamically throttle hardware access via kernel files:
+- **Dynamic Allocation:** Limits are parsed via CLI flags to dynamically throttle hardware access via kernel files:
   - `--memory`: Writes to `memory.max` (e.g., RAM limits).
   - `--cpus`: Calculates microseconds and writes to `cpu.max` for strict CPU throttling.
   - `--cpuset`: Writes to `cpuset.cpus` for physical CPU core pinning.
@@ -28,8 +30,10 @@ By default, the isolated network namespace has no connection to the outside worl
 - **Inbound Port Forwarding:** To host a web server, the engine uses `DNAT` rules. If external traffic hits the host on a mapped port (e.g., `8080`), `iptables` intercepts it and forwards it down the virtual cable to the container's internal port (e.g., `80`).
 - **DNS Resolution:** Right before boot, the engine injects an `/etc/resolv.conf` file inside the container pointing to public nameservers (like `8.8.8.8`) so the container can translate domain names.
 
-## State Management
+## Execution & State Management
 `o1` utilizes a daemonless, file-system-driven architecture to track and manage container states. The control plane relies on Linux signals and namespace injection rather than a background API service.
+- **Global Privilege Enforcement:** Validates `UID 0` (Root) authority upfront at the CLI boundary, ensuring the daemonless binary has the permissions required to modify namespaces, cgroups, and network bridges without cryptic mid-execution failures.
+- **Zero-Config OCI Resolution:** Dynamically reads the image's `config.json` manifest prior to boot. It intelligently merges image-baked `Env` arrays with runtime overrides, and calculates the final execution array by evaluating the user's CLI inputs against the image's immutable `Entrypoint` and default `Cmd` parameters.
 - **State Persistence:** Upon creation, the container's configuration is serialized into a JSON file stored at `/var/lib/o1/state/`.
 - **Process Probing (Signal 0):** To determine container health without a daemon, the engine utilizes the Unix `Signal 0` syscall (`syscall.Kill(PID, 0)`). If the kernel throws an error while pinging the PID, the container is marked as *Dead*.
 - **Namespace Injection:** To execute commands in running containers, the engine queries the state database for the container's Host PID, then executes `nsenter` targeting the Mount (`-m`), UTS (`-u`), IPC (`-i`), Network (`-n`), and PID (`-p`) namespaces. Host standard streams (`stdin`, `stdout`, `stderr`) are wired directly into the injected process, creating a seamless interactive shell.
