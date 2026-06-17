@@ -43,6 +43,13 @@ func main() {
 			os.Exit(1)
 		}
 		container.Remove(os.Args[2])
+	case "stats":
+		// root is required to read cgroup file
+		if os.Geteuid() != 0 {
+			fmt.Println("Please run as root `sudo o1 stats`")
+			os.Exit(1)
+		}
+		container.Stats()
 	default:
 		panic("Bad command")
 	}

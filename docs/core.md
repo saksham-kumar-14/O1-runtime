@@ -14,7 +14,7 @@
 - Memory Limit: 512 MB
 - Process Limit: 20 maximum background/foreground processes per container.
 
-## 4. Networking
+## Networking
 By default, the isolated network namespace has no connection to the outside world. So, build a custom virtual network from scratch.
 - **The Virtual Switch (`o1-br0`):** A fake network bridge on the host and assign it the IP `10.0.0.1`. Every container uses this as its default gateway (its router).
 - **Enabling Routing:** Run `sysctl -w net.ipv4.ip_forward=1` to tell the kernel it is allowed to act as a router, and add `iptables` rules to allow traffic in and out of the bridge.
@@ -35,3 +35,4 @@ By default, the isolated network namespace has no connection to the outside worl
   - Host standard streams (`stdin`, `stdout`, `stderr`) are wired directly into the injected process, creating a seamless interactive shell session.
 - **Stop:** Sends a graceful `SIGTERM` signal to the process, allowing the application to safely shut down. It clears the state database and OverlayFS workspace but leaves network routing intact.
 - **Remove** Executes a complete system cleanse. It sends an uncatchable `SIGKILL` to the process, deletes the virtual ethernet (`veth`) interface from the host bridge, wipes the OverlayFS directories, and completely flushes the `iptables` NAT table to prevent ghost routing rules.
+- **Stats:**

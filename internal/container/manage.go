@@ -1,14 +1,17 @@
 package container
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"text/tabwriter"
+	"time"
 )
 
 // ps reads the state database and prints a formatted table of running containers
@@ -184,4 +187,99 @@ func Remove(containerID string) {
 	exec.Command("iptables", "-t", "nat", "-D", "POSTROUTING", "-s", state.IP+"/32", "-j", "MASQUERADE").Run()
 
 	fmt.Printf("Container %s successfully removed!\n", containerID)
+}
+
+// read memory.current
+func getMemoryUsage(containerID string) string {
+	path := filepath.Join("/sys/fs/cgroup/o1-runtime", containerID, "memory.current")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "0.00 MB"
+	}
+
+	bytes, err := strconv.ParseFloat(strings.TrimSpace(string(data)), 64)
+	if err != nil {
+		return "0.00 MB"
+	}
+
+	mem := bytes / 1024.0 / 1024.0
+	return fmt.Sprintf("%.2f MB", mem)
+}
+
+// read cpu.stat and extract total usage_usec counter
+func getCpuUsageUsec(containerID string) int64 {
+	path := filepath.Join("/sys/fs/cgroup/o1-runtime", containerID, "cpu.stat")
+	file, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		parts := strings.Fields(scanner.Text())
+		if len(parts) == 2 && parts[0] == "usage_usec" {
+			usec, _ := strconv.ParseInt(parts[1], 10, 64)
+			return usec
+		}
+	}
+	return 0
+}
+
+func Stats() {
+	stateDir := "/var/lib/o1/state"
+
+	lastCpuUsage := make(map[string]int64)
+	lastTime := make(map[string]time.Time)
+
+	for {
+		fmt.Print("\033[2J\033[H") // clear the screen and move cursor to top left
+		fmt.Printf("%-15s %-10s %-15s %-15s %-10s\n", "CONTAINER ID", "PID", "CPU %", "MEM USAGE", "STATUS")
+		fmt.Println(strings.Repeat("-", 65))
+
+		files, err := os.ReadDir(stateDir)
+		if err != nil {
+			fmt.Println("No containers running.")
+			return
+		}
+
+		for _, file := range files {
+			if filepath.Ext(file.Name()) == ".json" {
+				data, err := os.ReadFile(filepath.Join(stateDir, file.Name()))
+				if err != nil {
+					continue
+				}
+
+				var state ContainerState
+				json.Unmarshal(data, &state)
+
+				if state.Status == "Dead" {
+					continue
+				}
+
+				memStr := getMemoryUsage(state.ID)
+				currentCpu := getCpuUsageUsec(state.ID)
+				currentTime := time.Now()
+				cpuPercent := 0.0
+
+				if prevTime, exists := lastTime[state.ID]; exists {
+					prevCpu := lastCpuUsage[state.ID]
+
+					timeDelta := currentTime.Sub(prevTime).Microseconds()
+					cpuDelta := currentCpu - prevCpu
+
+					if timeDelta > 0 {
+						cpuPercent = (float64(cpuDelta) / float64(timeDelta)) * 100.0
+					}
+				}
+
+				lastCpuUsage[state.ID] = currentCpu
+				lastTime[state.ID] = currentTime
+				fmt.Printf("%-15s %-10d %-15.2f %-15s %-10s\n", state.ID[:8], state.PID, cpuPercent, memStr, state.Status)
+			}
+		}
+
+		// 1 sec refresh rate
+		time.Sleep(1 * time.Second)
+	}
 }
