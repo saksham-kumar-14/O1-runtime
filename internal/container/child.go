@@ -12,7 +12,7 @@ import (
 
 func Child(args []string) {
 
-	if len(args) < 2 {
+	if len(args) < 3 {
 		panic("Child requires container ID and command")
 	}
 	containerID := args[0]
