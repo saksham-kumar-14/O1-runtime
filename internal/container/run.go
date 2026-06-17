@@ -118,13 +118,21 @@ func Run(args []string) {
 		}
 	}
 
+	// capture the first argument as image name
+	if len(execArgs) < 1 {
+		fmt.Println("Error: Must provide an image name")
+		os.Exit(1)
+	}
+	imageName := execArgs[0]
+	containerCmd := execArgs[1:]
+
 	// create anonymous pipe
 	readPipe, writePipe, err := os.Pipe()
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create anonymous pipe: %v", err))
 	}
 
-	cmdArgs := append([]string{"child", containerID}, execArgs...)
+	cmdArgs := append([]string{"child", containerID, imageName}, containerCmd...)
 	cmd := exec.Command("/proc/self/exe", cmdArgs...)
 
 	cmd.Env = append(os.Environ(), "O1_VOLUME="+volume) // put volume data in child process

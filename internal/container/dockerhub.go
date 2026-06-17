@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -21,8 +22,28 @@ type ManifestResponse struct {
 	} `json:"layers"`
 }
 
+// for reading architecture index
+type ManifestIndex struct {
+	Manifests []struct {
+		Digest   string `json:"digest"`
+		Platform struct {
+			Architecture string `json:"architecture"`
+			OS           string `json:"os"`
+		} `json:"platform"`
+	} `json:"manifests"`
+}
+
+func fetchManifest(url, token, acceptHeader string) (*http.Response, error) {
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", acceptHeader)
+
+	client := &http.Client{}
+	return client.Do(req)
+}
+
 func Pull(image string) {
-	parts := strings.Split(image, "/")
+	parts := strings.Split(image, ":")
 	repo := parts[0]
 	tag := "latest"
 	if len(parts) == 2 {
@@ -32,7 +53,7 @@ func Pull(image string) {
 		repo = "library/" + repo
 	}
 
-	fmt.Sprint("Pulling %s:%s form dockerhub", repo, tag)
+	fmt.Printf("Pulling %s:%s from Docker Hub...\n", repo, tag) // Correct
 
 	authUrl := fmt.Sprintf("https://auth.docker.io/token?service=registry.docker.io&scope=repository:%s:pull", repo)
 	res, err := http.Get(authUrl)
@@ -47,23 +68,50 @@ func Pull(image string) {
 
 	// get image manifest
 	manifestUrl := fmt.Sprintf("https://registry-1.docker.io/v2/%s/manifests/%s", repo, tag)
-	req, _ := http.NewRequest("GET", manifestUrl, nil)
-	req.Header.Set("Authorization", "Bearer "+auth.Token)
-	req.Header.Set("Accept", "application/vnd.docker.distribution.manifest.v2+json") // Explicitly request the standard V2 manifest
+	// either accept a Manifest List (Index) OR a standard v2 Manifest
+	acceptHeader := "application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json"
 
-	client := &http.Client{}
-	res, err = client.Do(req)
+	res, err = fetchManifest(manifestUrl, auth.Token, acceptHeader)
 	if err != nil || res.StatusCode != 200 {
 		fmt.Printf("Failed to fetch manifest. Status: %d\n", res.StatusCode)
 		return
 	}
 	defer res.Body.Close()
 
+	bytes, _ := io.ReadAll(res.Body)
+
 	var manifest ManifestResponse
-	json.NewDecoder(res.Body).Decode(&manifest)
+	var index ManifestIndex
+	json.Unmarshal(bytes, &index)
+
+	// if json contains manifests, find our architecture in that manifests
+	if len(index.Manifests) > 0 {
+		fmt.Printf("Multi-architecture index detected. Searching for %s/linux...\n", runtime.GOARCH)
+
+		targetDigest := ""
+		for _, m := range index.Manifests {
+			if m.Platform.Architecture == runtime.GOARCH && m.Platform.OS == "linux" {
+				targetDigest = m.Digest
+				break
+			}
+		}
+
+		if targetDigest == "" {
+			fmt.Printf("Error: No image found for architecture %s/linux\n", runtime.GOARCH)
+			return
+		}
+
+		manifestUrl = fmt.Sprintf("https://registry-1.docker.io/v2/%s/manifests/%s", repo, targetDigest)
+		res, _ = fetchManifest(manifestUrl, auth.Token, "application/vnd.docker.distribution.manifest.v2+json")
+		defer res.Body.Close()
+
+		bytes, _ = io.ReadAll(res.Body)
+	}
+
+	json.Unmarshal(bytes, &manifest)
 
 	if len(manifest.Layers) == 0 {
-		fmt.Println("No layers found for this image. It might be an architecture index.")
+		fmt.Println("No layers found after parsing!")
 		return
 	}
 
@@ -71,6 +119,8 @@ func Pull(image string) {
 	targetDir := filepath.Join("/var/lib/o1/images", strings.ReplaceAll(repo, "/", "_")+"_"+tag)
 	os.RemoveAll(targetDir)
 	os.MkdirAll(targetDir, 0755)
+
+	client := &http.Client{}
 
 	for i, layer := range manifest.Layers {
 		fmt.Printf("Downloading layer %d/%d: %s\n", i+1, len(manifest.Layers), layer.Digest[:12])
