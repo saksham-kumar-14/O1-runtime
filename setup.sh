@@ -15,7 +15,7 @@ fi
 echo "Compiling the o1 engine..."
 
 
-GOOS=linux go build -o /tmp/o1 ./cmd/run/main.go
+CGO_ENABLED=1 go build -o /tmp/o1 ./cmd/run/main.go
 mv /tmp/o1 /usr/local/bin/o1
 chmod +x /usr/local/bin/o1
 

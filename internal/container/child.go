@@ -160,6 +160,13 @@ func Child(args []string) {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
+
+	// setup firewall
+	if err := setupSeccomp(); err != nil {
+		fmt.Fprintf(logFile, "FATAL Security Firewall Error: %v\n", err)
+		os.Exit(1)
+	}
+
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintf(logFile, "FATAL Go Runtime Error: %v\n", err)
 		logFile.Sync()
