@@ -283,3 +283,74 @@ func Stats() {
 		time.Sleep(1 * time.Second)
 	}
 }
+
+// calulate total size of a directory
+func getDirSize(path string) (int64, error) {
+	var size int64
+	err := filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			size += info.Size()
+		}
+		return err
+	})
+	return size, err
+}
+
+// lists all downloaded OCI images
+func Images() {
+	imageDir := "/var/lib/o1/images"
+
+	files, err := os.ReadDir(imageDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Println("No images downloaded yet.")
+			return
+		}
+		fmt.Printf("Error reading images directory: %v\n", err)
+		return
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 4, ' ', 0)
+	fmt.Fprintln(w, "REPOSITORY\tTAG\tSIZE")
+
+	imageCount := 0
+	for _, file := range files {
+		if file.IsDir() {
+
+			// reverse the formatting we did in pull (library_ubuntu_latest -> ubuntu:latest)
+			nameParts := strings.Split(file.Name(), "_")
+			repo := ""
+			tag := ""
+
+			if len(nameParts) >= 2 {
+				// Strip "library" from official images for cleaner output
+				if nameParts[0] == "library" {
+					repo = nameParts[1]
+				} else {
+					repo = nameParts[0] + "/" + nameParts[1]
+				}
+				tag = nameParts[len(nameParts)-1]
+			} else {
+				repo = file.Name()
+				tag = "latest"
+			}
+
+			// calculate folder size
+			path := filepath.Join(imageDir, file.Name())
+			sizeBytes, _ := getDirSize(path)
+			sizeMB := float64(sizeBytes) / 1024.0 / 1024.0
+
+			fmt.Fprintf(w, "%s\t%s\t%.2f MB\n", repo, tag, sizeMB)
+			imageCount++
+		}
+	}
+
+	if imageCount == 0 {
+		fmt.Println("REPOSITORY\tTAG\tSIZE")
+	} else {
+		w.Flush()
+	}
+}

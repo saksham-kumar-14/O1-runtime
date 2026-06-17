@@ -56,6 +56,8 @@ func main() {
 			os.Exit(1)
 		}
 		container.Pull(os.Args[2])
+	case "images":
+		container.Images()
 	default:
 		panic("Bad command")
 	}
