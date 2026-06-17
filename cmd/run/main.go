@@ -50,6 +50,12 @@ func main() {
 			os.Exit(1)
 		}
 		container.Stats()
+	case "pull":
+		if len(os.Args) < 3 {
+			fmt.Println("Usage: sudo o1 pull <image>")
+			os.Exit(1)
+		}
+		container.Pull(os.Args[2])
 	default:
 		panic("Bad command")
 	}
