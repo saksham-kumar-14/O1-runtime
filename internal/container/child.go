@@ -16,9 +16,20 @@ func Child(args []string) {
 		panic("Child requires container ID and command")
 	}
 	containerID := args[0]
-	execArgs := args[1:]
+	imageName := args[1]
+	execArgs := args[2:]
 
-	imageDir := "/var/lib/o1/images/default"
+	// format `image` to `library_image_latest` to match registry output
+	if !strings.Contains(imageName, ":") {
+		imageName += "_latest"
+	}
+	if !strings.Contains(imageName, "/") {
+		imageName = "library_" + imageName
+	} else {
+		imageName = strings.ReplaceAll(imageName, "/", "_")
+	}
+
+	imageDir := filepath.Join("/var/lib/o1/images", imageName)
 
 	containerDir := filepath.Join("/var/lib/o1/containers", containerID) // create a unique overlayFS dir for this container
 	upperDir := filepath.Join(containerDir, "upper")
