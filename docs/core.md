@@ -35,4 +35,4 @@ By default, the isolated network namespace has no connection to the outside worl
   - Host standard streams (`stdin`, `stdout`, `stderr`) are wired directly into the injected process, creating a seamless interactive shell session.
 - **Stop:** Sends a graceful `SIGTERM` signal to the process, allowing the application to safely shut down. It clears the state database and OverlayFS workspace but leaves network routing intact.
 - **Remove** Executes a complete system cleanse. It sends an uncatchable `SIGKILL` to the process, deletes the virtual ethernet (`veth`) interface from the host bridge, wipes the OverlayFS directories, and completely flushes the `iptables` NAT table to prevent ghost routing rules.
-- **Stats:**
+- **Stats:** Provides container stats by querying the Linux Kernel's Cgroup v2 virtual filesystem directly. It continuously reads memory.current for real-time RAM consumption and cpu.stat for total CPU execution time (`usage_usec`). CPU utilization percentage is calculated dynamically by measuring the time delta of microsecond execution against a 1 second refresh interval.
